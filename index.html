@@ -6,134 +6,11 @@
 <title>Mitya</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
   canvas { pointer-events: none; background-color: #000; position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-
-  /* ── Admin Panel ── */
-  #admin-toggle {
-    position: fixed; top: 16px; right: 16px; z-index: 1000;
-    width: 36px; height: 36px; border-radius: 50%;
-    background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
-    color: #fff; font-size: 18px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-    transition: background 0.2s;
-  }
-  #admin-toggle:hover { background: rgba(255,255,255,0.25); }
-
-  #admin-panel {
-    position: fixed; top: 0; right: -320px; z-index: 999;
-    width: 320px; height: 100%; overflow-y: auto;
-    background: rgba(18,18,18,0.92);
-    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    border-left: 1px solid rgba(255,255,255,0.08);
-    padding: 60px 20px 30px; color: #ccc;
-    transition: right 0.3s ease;
-    font-size: 12px;
-  }
-  #admin-panel.open { right: 0; }
-
-  #admin-panel h3 {
-    font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
-    color: rgba(255,255,255,0.4); margin: 20px 0 12px; font-weight: 500;
-  }
-  #admin-panel h3:first-child { margin-top: 0; }
-
-  .ctrl { margin-bottom: 14px; }
-  .ctrl-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
-  .ctrl-label { font-size: 12px; color: rgba(255,255,255,0.7); }
-  .ctrl-value { font-size: 11px; color: rgba(255,255,255,0.4); font-variant-numeric: tabular-nums; min-width: 32px; text-align: right; }
-
-  .ctrl input[type="range"] {
-    -webkit-appearance: none; appearance: none; width: 100%; height: 3px;
-    background: rgba(255,255,255,0.12); border-radius: 2px; outline: none;
-  }
-  .ctrl input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none;
-    width: 14px; height: 14px; border-radius: 50%;
-    background: #fff; cursor: pointer; border: none;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-  }
-
-  .ctrl-check { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer; }
-  .ctrl-check input { display: none; }
-  .ctrl-check .box {
-    width: 16px; height: 16px; border-radius: 3px;
-    border: 1.5px solid rgba(255,255,255,0.3); position: relative;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .ctrl-check input:checked + .box { background: #fff; border-color: #fff; }
-  .ctrl-check input:checked + .box::after {
-    content: ""; position: absolute; left: 4px; top: 1px;
-    width: 5px; height: 9px; border: solid #111; border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-  }
-  .ctrl-check span:last-child { font-size: 12px; color: rgba(255,255,255,0.7); }
 </style>
 </head>
 <body>
-<!-- Admin Panel -->
-<button id="admin-toggle" title="Settings">&#9881;</button>
-<div id="admin-panel">
-  <h3>Grid</h3>
-  <div class="ctrl">
-    <div class="ctrl-header"><span class="ctrl-label">Subdivisions</span><span class="ctrl-value" id="v-grid_size">8</span></div>
-    <input type="range" data-key="grid_size" min="3" max="32" step="1" value="8">
-  </div>
-  <div class="ctrl">
-    <div class="ctrl-header"><span class="ctrl-label">Cell Image Zoom</span><span class="ctrl-value" id="v-zoom">0%</span></div>
-    <input type="range" data-key="zoom" min="-50" max="100" step="1" value="0">
-  </div>
-
-  <label class="ctrl-check">
-    <input type="checkbox" data-key="flip_it">
-    <span class="box"></span>
-    <span>Flip Alternate Cells</span>
-  </label>
-
-  <h3>Turbulence</h3>
-  <label class="ctrl-check">
-    <input type="checkbox" data-key="stir_grid" checked>
-    <span class="box"></span>
-    <span>Turbulence</span>
-  </label>
-  <div class="ctrl">
-    <div class="ctrl-header"><span class="ctrl-label">Stir Frequency</span><span class="ctrl-value" id="v-stir_freq">80%</span></div>
-    <input type="range" data-key="stir_freq" min="0" max="100" step="1" value="80">
-  </div>
-  <div class="ctrl">
-    <div class="ctrl-header"><span class="ctrl-label">Stir Strength</span><span class="ctrl-value" id="v-stir_strength">90%</span></div>
-    <input type="range" data-key="stir_strength" min="0" max="100" step="1" value="90">
-  </div>
-  <div class="ctrl">
-    <div class="ctrl-header"><span class="ctrl-label">Disorder</span><span class="ctrl-value" id="v-stir_disorder">78%</span></div>
-    <input type="range" data-key="stir_disorder" min="0" max="100" step="1" value="78">
-  </div>
-  <div class="ctrl">
-    <div class="ctrl-header"><span class="ctrl-label">Motion Elasticity</span><span class="ctrl-value" id="v-elasticity">86%</span></div>
-    <input type="range" data-key="elasticity" min="0" max="100" step="1" value="86">
-  </div>
-
-  <h3>Mouse</h3>
-  <label class="ctrl-check">
-    <input type="checkbox" data-key="mouse_interaction" checked>
-    <span class="box"></span>
-    <span>Mouse Interaction</span>
-  </label>
-  <div class="ctrl">
-    <div class="ctrl-header"><span class="ctrl-label">Mouse Movement Force</span><span class="ctrl-value" id="v-mouse_sensitivity">97%</span></div>
-    <input type="range" data-key="mouse_sensitivity" min="0" max="100" step="1" value="97">
-  </div>
-  <div class="ctrl">
-    <div class="ctrl-header"><span class="ctrl-label">Mouse Radius</span><span class="ctrl-value" id="v-tolerance">71%</span></div>
-    <input type="range" data-key="tolerance" min="0" max="100" step="1" value="71">
-  </div>
-  <div class="ctrl">
-    <div class="ctrl-header"><span class="ctrl-label">Mouseover Zoom</span><span class="ctrl-value" id="v-mouse_zoom">15%</span></div>
-    <input type="range" data-key="mouse_zoom" min="-100" max="100" step="1" value="15">
-  </div>
-</div>
-
 <script src="photo1_data.js"></script>
 <script src="pixi.min.js"></script>
 <script>
@@ -145,27 +22,26 @@
 (function(PIXI) {
 
   // ── Settings (from Cargo admin panel for burohaus) ──
-  // ── Actual admin panel values (verified from screenshot) ──
   var settings = {
     hex: "#000000",
     alpha: 0,
     mouse_interaction: true,
-    mouse_sensitivity: 97,   // Mouse Movement Force 97%
+    mouse_sensitivity: 56,   // Mouse Movement Force 56%
     image_url: "photo1.png",
     rows: 64,
     columns: 64,
-    zoom: 0,                 // Cell Image Zoom 0%
+    zoom: -9,                // Cell Image Zoom -9%
     horiz_stretch: 100,
     vert_stretch: 97,
     layout_mode: "grid_mode",
-    grid_size: 8,            // Subdivisions 8
+    grid_size: 11,           // Subdivisions 11
     stir_grid: true,         // Turbulence ON
-    stir_freq: 80,           // Stir Frequency 80%
-    stir_strength: 90,       // Stir Strength 90%
-    stir_disorder: 78,       // Disorder 78%
-    elasticity: 86,          // Motion Elasticity 86%
+    stir_freq: 59,           // Stir Frequency 59%
+    stir_strength: 92,       // Stir Strength 92%
+    stir_disorder: 69,       // Disorder 69%
+    elasticity: 85,          // Motion Elasticity 85%
     tolerance: 71,           // Mouse Radius 71%
-    mouse_zoom: 15,          // Mouseover Zoom 15%
+    mouse_zoom: -15,         // Mouseover Zoom -15%
     flip_it: false,          // Flip Alternate Cells OFF
     size: "cover"
   };
@@ -782,65 +658,10 @@
     mouse_calced = false;
   }
 
-  // ── Update (mirrors Cargo's Update method) ──
-  function Update(key, val) {
-    if (settings[key] === val) return;
-    settings[key] = val;
-
-    if (key === "grid_size" || key === "flip_it") {
-      if (!data.image_loaded) return;
-      makeSprites();
-    }
-    if (key === "zoom") {
-      setSpritePosition();
-      resizeImage();
-    }
-    if (key === "elasticity") {
-      data.elasticity = val;
-    }
-    if (key === "mouse_sensitivity") {
-      data.mouse_sensitivity = 0.05 * Math.pow(0.01 * val, 2);
-    }
-  }
-
-  // Expose Update for admin panel
-  window._pixUpdate = Update;
-
   // ── Start ──
   Init();
 
 })(PIXI);
-
-// ── Admin Panel Controls ──
-(function() {
-  var toggle = document.getElementById("admin-toggle");
-  var panel = document.getElementById("admin-panel");
-
-  toggle.addEventListener("click", function() {
-    panel.classList.toggle("open");
-  });
-
-  // Sliders
-  panel.querySelectorAll('input[type="range"]').forEach(function(input) {
-    var key = input.dataset.key;
-    var valueEl = document.getElementById("v-" + key);
-    var isPercent = ["stir_freq","stir_strength","stir_disorder","elasticity","mouse_sensitivity","tolerance","mouse_zoom","zoom"].indexOf(key) !== -1;
-
-    input.addEventListener("input", function() {
-      var val = parseFloat(input.value);
-      if (valueEl) valueEl.textContent = isPercent ? val + "%" : val;
-      window._pixUpdate(key, val);
-    });
-  });
-
-  // Checkboxes
-  panel.querySelectorAll('input[type="checkbox"]').forEach(function(input) {
-    var key = input.dataset.key;
-    input.addEventListener("change", function() {
-      window._pixUpdate(key, input.checked);
-    });
-  });
-})();
 </script>
 </body>
 </html>
