@@ -32,24 +32,14 @@
   .status.ok { color: #4caf50; }
   .status.err { color: #f44336; }
 
-  /* Tabs */
-  .tabs { display: flex; border-bottom: 1px solid rgba(255,255,255,0.08); background: #151515; }
-  .tab {
-    padding: 12px 28px; cursor: pointer; font-size: 13px; font-weight: 500;
-    color: rgba(255,255,255,0.4); border-bottom: 2px solid transparent;
-    transition: all 0.15s; text-transform: uppercase; letter-spacing: 1px;
-  }
-  .tab:hover { color: rgba(255,255,255,0.7); }
-  .tab.active { color: #fff; border-bottom-color: #fff; }
-
   /* Main layout: preview LEFT, controls RIGHT */
   .main {
-    display: flex; gap: 0; height: calc(100vh - 100px);
+    display: flex; gap: 0; height: calc(100vh - 65px);
   }
 
   /* Preview column (left) */
   .preview-col {
-    flex: 1; padding: 24px; overflow-y: auto;
+    flex: 1; overflow-y: auto;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     background: #0a0a0a;
   }
@@ -80,16 +70,51 @@
   }
   .preview-mobile iframe { width: 100%; height: 100%; }
 
-  /* Controls column (right) */
+  /* Controls column (right) — includes tabs */
   .controls-col {
     flex: 0 0 380px; min-width: 320px;
     border-left: 1px solid rgba(255,255,255,0.08);
-    overflow-y: auto;
+    display: flex; flex-direction: column;
+  }
+
+  /* Tabs inside controls column */
+  .tabs {
+    display: flex; border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: #151515; flex-shrink: 0;
+  }
+  .tab {
+    flex: 1; padding: 12px 0; cursor: pointer; font-size: 13px; font-weight: 500;
+    color: rgba(255,255,255,0.4); border-bottom: 2px solid transparent;
+    transition: all 0.15s; text-transform: uppercase; letter-spacing: 1px;
+    text-align: center;
+  }
+  .tab:hover { color: rgba(255,255,255,0.7); }
+  .tab.active { color: #fff; border-bottom-color: #fff; }
+
+  .controls-scroll {
+    flex: 1; overflow-y: auto;
   }
 
   /* Panel content */
   .panel { display: none; padding: 24px; }
   .panel.active { display: block; }
+
+  /* Image upload */
+  .upload-area {
+    margin-bottom: 20px; padding: 16px;
+    border: 2px dashed rgba(255,255,255,0.15); border-radius: 8px;
+    text-align: center; cursor: pointer; transition: border-color 0.15s;
+  }
+  .upload-area:hover { border-color: rgba(255,255,255,0.3); }
+  .upload-area.uploading { border-color: rgba(76,175,80,0.5); opacity: 0.6; pointer-events: none; }
+  .upload-icon { font-size: 24px; margin-bottom: 6px; color: rgba(255,255,255,0.3); }
+  .upload-text { font-size: 12px; color: rgba(255,255,255,0.4); }
+  .upload-text strong { color: rgba(255,255,255,0.6); }
+  .upload-filename {
+    margin-top: 8px; font-size: 11px; color: rgba(255,255,255,0.3);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .upload-input { display: none; }
 
   .section-title {
     font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
@@ -182,12 +207,6 @@
   </div>
 </div>
 
-<!-- Tabs -->
-<div class="tabs">
-  <div class="tab active" data-tab="desktop" onclick="switchTab('desktop')">Desktop</div>
-  <div class="tab" data-tab="mobile" onclick="switchTab('mobile')">Mobile</div>
-</div>
-
 <!-- Main: Preview (left) + Controls (right) -->
 <div class="main">
   <!-- Preview -->
@@ -204,10 +223,16 @@
     </div>
   </div>
 
-  <!-- Controls -->
+  <!-- Controls (with tabs inside) -->
   <div class="controls-col">
-    <div class="panel active" id="panel-desktop"></div>
-    <div class="panel" id="panel-mobile"></div>
+    <div class="tabs">
+      <div class="tab active" data-tab="desktop" onclick="switchTab('desktop')">Desktop</div>
+      <div class="tab" data-tab="mobile" onclick="switchTab('mobile')">Mobile</div>
+    </div>
+    <div class="controls-scroll">
+      <div class="panel active" id="panel-desktop"></div>
+      <div class="panel" id="panel-mobile"></div>
+    </div>
   </div>
 </div>
 
@@ -270,6 +295,27 @@ function buildPanel(device) {
   panel.innerHTML = "";
   var s = settings[device];
 
+  // Image upload area
+  var uploadArea = document.createElement("div");
+  uploadArea.className = "upload-area";
+  uploadArea.id = "upload-area-" + device;
+  uploadArea.innerHTML =
+    '<div class="upload-icon">&#8681;</div>' +
+    '<div class="upload-text"><strong>Upload image</strong> for ' + device + '</div>' +
+    '<div class="upload-filename" id="upload-name-' + device + '">' +
+      (s.image_url ? s.image_url : 'photo1.png (default)') +
+    '</div>';
+  var fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = "image/png,image/jpeg,image/webp";
+  fileInput.className = "upload-input";
+  fileInput.id = "upload-input-" + device;
+  fileInput.dataset.device = device;
+  fileInput.addEventListener("change", function() { handleImageUpload(this); });
+  uploadArea.appendChild(fileInput);
+  uploadArea.addEventListener("click", function() { fileInput.click(); });
+  panel.appendChild(uploadArea);
+
   controls.forEach(function(c) {
     if (c.section) {
       var h = document.createElement("div");
@@ -318,6 +364,82 @@ function buildPanel(device) {
   });
 }
 
+// ── Image upload ──
+function handleImageUpload(input) {
+  var file = input.files[0];
+  if (!file) return;
+
+  var device = input.dataset.device;
+  var area = document.getElementById("upload-area-" + device);
+  var nameEl = document.getElementById("upload-name-" + device);
+
+  // Show preview immediately via data URL
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var dataUrl = e.target.result;
+
+    // Send to iframe for immediate preview
+    var iframe = document.getElementById("preview-" + device);
+    if (iframe && iframe.contentWindow && previewReady[device]) {
+      iframe.contentWindow.postMessage({
+        type: "update_image",
+        image_url: dataUrl
+      }, "*");
+    }
+
+    nameEl.textContent = file.name + " — uploading...";
+    area.classList.add("uploading");
+
+    // Upload to GitHub
+    var ext = file.name.split(".").pop().toLowerCase();
+    var filename = "photo_" + device + "." + ext;
+    uploadImageToGitHub(filename, dataUrl, function(ok, url) {
+      area.classList.remove("uploading");
+      if (ok) {
+        settings[device].image_url = filename;
+        nameEl.textContent = filename;
+        setStatus("Image uploaded: " + filename, "ok");
+      } else {
+        nameEl.textContent = "Upload failed";
+        setStatus("Image upload failed", "err");
+      }
+    });
+  };
+  reader.readAsDataURL(file);
+}
+
+function uploadImageToGitHub(filename, dataUrl, callback) {
+  var token = getToken();
+  if (!token) { showTokenModal(); callback(false); return; }
+
+  // Extract base64 content from data URL
+  var base64 = dataUrl.split(",")[1];
+
+  // Check if file already exists (need SHA for update)
+  fetch("https://api.github.com/repos/" + REPO + "/contents/" + filename, {
+    headers: { "Authorization": "token " + token }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    var body = {
+      message: "Upload " + filename + " via admin",
+      content: base64
+    };
+    if (data.sha) body.sha = data.sha; // update existing
+
+    return fetch("https://api.github.com/repos/" + REPO + "/contents/" + filename, {
+      method: "PUT",
+      headers: {
+        "Authorization": "token " + token,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+  })
+  .then(function(r) { callback(r.ok); })
+  .catch(function() { callback(false); });
+}
+
 // ── Tabs ──
 function switchTab(tab) {
   activeTab = tab;
@@ -338,7 +460,7 @@ function saveToken() {
 }
 function getToken() { return localStorage.getItem("gh_token"); }
 
-// ── Load settings from GitHub ──
+// ── Load settings ──
 function loadSettings() {
   fetch("settings.json?t=" + Date.now())
     .then(function(r) { return r.json(); })

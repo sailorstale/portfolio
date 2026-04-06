@@ -761,6 +761,17 @@
       }
     }
 
+    if (e.data.type === 'update_image' && e.data.image_url) {
+      // Reload image with new URL (or data URL for instant preview)
+      settings.image_url = e.data.image_url;
+      data.image_loaded = false;
+      // Remove existing sprites
+      while (data.composition.children.length > 0) {
+        data.composition.removeChildAt(0);
+      }
+      loadImage();
+    }
+
     if (e.data.type === 'skip_settings_load') {
       // Admin preview: skip loading settings.json, wait for postMessage instead
       settingsLoaded = true;
