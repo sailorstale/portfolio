@@ -14,7 +14,7 @@
     "mouse_zoom": -15
   },
   "mobile": {
-    "grid_size": 3,
+    "grid_size": 6,
     "zoom": -5,
     "flip_it": false,
     "stir_grid": true,
