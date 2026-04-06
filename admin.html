@@ -147,9 +147,9 @@
   /* Responsive */
   @media (max-width: 900px) {
     .main { flex-direction: column; }
-    .controls-col { flex: none; width: 100%; max-height: none; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.08); }
-    .preview-col { max-height: none; flex-direction: row; flex-wrap: wrap; justify-content: center; }
-    .preview-block { width: auto; }
+    .controls-col { flex: none; width: 100%; max-height: none; overflow-y: visible; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .preview-col { max-height: none; overflow-y: visible; flex-direction: column; align-items: center; }
+    .preview-desktop .preview-frame { width: 100%; }
   }
 </style>
 </head>
