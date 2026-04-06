@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Pixelation Settings</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #111; color: #ccc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px; min-height: 100vh;
+  }
+
+  /* Header */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: rgba(18,18,18,0.95); position: sticky; top: 0; z-index: 10;
+  }
+  .header h1 { font-size: 16px; font-weight: 600; color: #fff; }
+  .header .actions { display: flex; gap: 10px; }
+  .btn {
+    padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 500; transition: all 0.15s;
+  }
+  .btn-primary { background: #fff; color: #111; }
+  .btn-primary:hover { background: #e0e0e0; }
+  .btn-secondary { background: rgba(255,255,255,0.1); color: #ccc; border: 1px solid rgba(255,255,255,0.15); }
+  .btn-secondary:hover { background: rgba(255,255,255,0.15); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .status { font-size: 12px; color: rgba(255,255,255,0.4); padding: 8px 0; }
+  .status.ok { color: #4caf50; }
+  .status.err { color: #f44336; }
+
+  /* Tabs */
+  .tabs { display: flex; border-bottom: 1px solid rgba(255,255,255,0.08); background: #151515; }
+  .tab {
+    padding: 12px 28px; cursor: pointer; font-size: 13px; font-weight: 500;
+    color: rgba(255,255,255,0.4); border-bottom: 2px solid transparent;
+    transition: all 0.15s; text-transform: uppercase; letter-spacing: 1px;
+  }
+  .tab:hover { color: rgba(255,255,255,0.7); }
+  .tab.active { color: #fff; border-bottom-color: #fff; }
+
+  /* Panel content */
+  .panel { display: none; padding: 24px; max-width: 600px; }
+  .panel.active { display: block; }
+
+  .section-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: rgba(255,255,255,0.3); margin: 24px 0 14px; font-weight: 500;
+  }
+  .section-title:first-child { margin-top: 0; }
+
+  .ctrl { margin-bottom: 16px; }
+  .ctrl-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .ctrl-label { font-size: 13px; color: rgba(255,255,255,0.7); }
+  .ctrl-value { font-size: 12px; color: rgba(255,255,255,0.4); font-variant-numeric: tabular-nums; min-width: 36px; text-align: right; }
+
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 3px;
+    background: rgba(255,255,255,0.12); border-radius: 2px; outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  }
+
+  .ctrl-check { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; cursor: pointer; }
+  .ctrl-check input[type="checkbox"] { display: none; }
+  .ctrl-check .box {
+    width: 18px; height: 18px; border-radius: 4px;
+    border: 2px solid rgba(255,255,255,0.3); position: relative; flex-shrink: 0;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .ctrl-check input:checked + .box { background: #fff; border-color: #fff; }
+  .ctrl-check input:checked + .box::after {
+    content: ""; position: absolute; left: 4px; top: 1px;
+    width: 6px; height: 10px; border: solid #111; border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .ctrl-check .lbl { font-size: 13px; color: rgba(255,255,255,0.7); }
+
+  /* Token modal */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal-bg.hidden { display: none; }
+  .modal {
+    background: #1a1a1a; border-radius: 12px; padding: 32px;
+    max-width: 480px; width: 90%; border: 1px solid rgba(255,255,255,0.1);
+  }
+  .modal h2 { font-size: 18px; color: #fff; margin-bottom: 12px; }
+  .modal p { font-size: 13px; color: rgba(255,255,255,0.5); margin-bottom: 16px; line-height: 1.5; }
+  .modal input[type="text"] {
+    width: 100%; padding: 10px 14px; background: #111; border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px; color: #fff; font-size: 13px; font-family: monospace; outline: none;
+  }
+  .modal input[type="text"]:focus { border-color: rgba(255,255,255,0.4); }
+  .modal .modal-actions { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; }
+  .modal a { color: #7eb8ff; }
+</style>
+</head>
+<body>
+
+<!-- Token Modal -->
+<div class="modal-bg hidden" id="token-modal">
+  <div class="modal">
+    <h2>GitHub Token</h2>
+    <p>To save settings directly to your site, you need a GitHub Personal Access Token with <strong>repo</strong> scope.</p>
+    <p><a href="https://github.com/settings/tokens/new?scopes=repo&description=Portfolio+Admin" target="_blank">Create token here</a> (check "repo" scope)</p>
+    <input type="text" id="token-input" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeTokenModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveToken()">Save Token</button>
+    </div>
+  </div>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <h1>Pixelation Settings</h1>
+  <div class="actions">
+    <span class="status" id="save-status"></span>
+    <button class="btn btn-secondary" onclick="showTokenModal()">Token</button>
+    <button class="btn btn-secondary" onclick="window.open('https://mityasudakov.com','_blank')">View Site</button>
+    <button class="btn btn-primary" id="save-btn" onclick="saveSettings()">Save & Deploy</button>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" data-tab="desktop" onclick="switchTab('desktop')">Desktop</div>
+  <div class="tab" data-tab="mobile" onclick="switchTab('mobile')">Mobile</div>
+</div>
+
+<!-- Desktop Panel -->
+<div class="panel active" id="panel-desktop"></div>
+
+<!-- Mobile Panel -->
+<div class="panel" id="panel-mobile"></div>
+
+<script>
+var REPO = "sailorstale/portfolio";
+var FILE = "settings.json";
+var settings = { desktop: {}, mobile: {} };
+
+// ── Slider definitions ──
+var controls = [
+  { section: "Grid" },
+  { key: "grid_size", label: "Subdivisions", min: 3, max: 32, step: 1, unit: "" },
+  { key: "zoom", label: "Cell Image Zoom", min: -50, max: 100, step: 1, unit: "%" },
+  { key: "flip_it", label: "Flip Alternate Cells", type: "checkbox" },
+
+  { section: "Turbulence" },
+  { key: "stir_grid", label: "Turbulence", type: "checkbox" },
+  { key: "stir_freq", label: "Stir Frequency", min: 0, max: 100, step: 1, unit: "%" },
+  { key: "stir_strength", label: "Stir Strength", min: 0, max: 100, step: 1, unit: "%" },
+  { key: "stir_disorder", label: "Disorder", min: 0, max: 100, step: 1, unit: "%" },
+  { key: "elasticity", label: "Motion Elasticity", min: 0, max: 100, step: 1, unit: "%" },
+
+  { section: "Mouse" },
+  { key: "mouse_interaction", label: "Mouse Interaction", type: "checkbox" },
+  { key: "mouse_sensitivity", label: "Mouse Movement Force", min: 0, max: 100, step: 1, unit: "%" },
+  { key: "tolerance", label: "Mouse Radius", min: 0, max: 100, step: 1, unit: "%" },
+  { key: "mouse_zoom", label: "Mouseover Zoom", min: -100, max: 100, step: 1, unit: "%" }
+];
+
+// ── Build UI for a device tab ──
+function buildPanel(device) {
+  var panel = document.getElementById("panel-" + device);
+  panel.innerHTML = "";
+  var s = settings[device];
+
+  controls.forEach(function(c) {
+    if (c.section) {
+      var h = document.createElement("div");
+      h.className = "section-title";
+      h.textContent = c.section;
+      panel.appendChild(h);
+      return;
+    }
+    if (c.type === "checkbox") {
+      var wrap = document.createElement("label");
+      wrap.className = "ctrl-check";
+      var inp = document.createElement("input");
+      inp.type = "checkbox";
+      inp.checked = !!s[c.key];
+      inp.dataset.key = c.key;
+      inp.dataset.device = device;
+      inp.addEventListener("change", function() { s[this.dataset.key] = this.checked; });
+      var box = document.createElement("span"); box.className = "box";
+      var lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = c.label;
+      wrap.appendChild(inp); wrap.appendChild(box); wrap.appendChild(lbl);
+      panel.appendChild(wrap);
+    } else {
+      var div = document.createElement("div"); div.className = "ctrl";
+      var hdr = document.createElement("div"); hdr.className = "ctrl-header";
+      var lbl = document.createElement("span"); lbl.className = "ctrl-label"; lbl.textContent = c.label;
+      var val = document.createElement("span"); val.className = "ctrl-value";
+      val.textContent = (s[c.key] || 0) + c.unit;
+      val.id = "val-" + device + "-" + c.key;
+      hdr.appendChild(lbl); hdr.appendChild(val);
+      var inp = document.createElement("input");
+      inp.type = "range"; inp.min = c.min; inp.max = c.max; inp.step = c.step;
+      inp.value = s[c.key] || 0;
+      inp.dataset.key = c.key; inp.dataset.device = device; inp.dataset.unit = c.unit;
+      inp.addEventListener("input", function() {
+        var v = parseFloat(this.value);
+        settings[this.dataset.device][this.dataset.key] = v;
+        document.getElementById("val-" + this.dataset.device + "-" + this.dataset.key).textContent = v + this.dataset.unit;
+      });
+      div.appendChild(hdr); div.appendChild(inp);
+      panel.appendChild(div);
+    }
+  });
+}
+
+// ── Tabs ──
+function switchTab(tab) {
+  document.querySelectorAll(".tab").forEach(function(t) { t.classList.toggle("active", t.dataset.tab === tab); });
+  document.querySelectorAll(".panel").forEach(function(p) { p.classList.toggle("active", p.id === "panel-" + tab); });
+}
+
+// ── Token ──
+function showTokenModal() { document.getElementById("token-modal").classList.remove("hidden"); }
+function closeTokenModal() { document.getElementById("token-modal").classList.add("hidden"); }
+function saveToken() {
+  var token = document.getElementById("token-input").value.trim();
+  if (token) localStorage.setItem("gh_token", token);
+  closeTokenModal();
+}
+function getToken() { return localStorage.getItem("gh_token"); }
+
+// ── Load settings from GitHub ──
+function loadSettings() {
+  fetch("settings.json?t=" + Date.now())
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      settings = data;
+      buildPanel("desktop");
+      buildPanel("mobile");
+      setStatus("Settings loaded", "ok");
+    })
+    .catch(function() { setStatus("Failed to load settings", "err"); });
+}
+
+// ── Save settings to GitHub via API ──
+function saveSettings() {
+  var token = getToken();
+  if (!token) { showTokenModal(); return; }
+
+  var btn = document.getElementById("save-btn");
+  btn.disabled = true;
+  btn.textContent = "Saving...";
+  setStatus("Saving...", "");
+
+  var content = btoa(unescape(encodeURIComponent(JSON.stringify(settings, null, 2) + "\n")));
+
+  // First get the current file SHA (required for updates)
+  fetch("https://api.github.com/repos/" + REPO + "/contents/" + FILE, {
+    headers: { "Authorization": "token " + token }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    return fetch("https://api.github.com/repos/" + REPO + "/contents/" + FILE, {
+      method: "PUT",
+      headers: {
+        "Authorization": "token " + token,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        message: "Update pixelation settings",
+        content: content,
+        sha: data.sha
+      })
+    });
+  })
+  .then(function(r) {
+    if (r.ok) {
+      setStatus("Saved! Site updates in ~1 min.", "ok");
+    } else {
+      r.json().then(function(d) { setStatus("Error: " + (d.message || "unknown"), "err"); });
+    }
+    btn.disabled = false;
+    btn.textContent = "Save & Deploy";
+  })
+  .catch(function(err) {
+    setStatus("Error: " + err.message, "err");
+    btn.disabled = false;
+    btn.textContent = "Save & Deploy";
+  });
+}
+
+function setStatus(text, type) {
+  var el = document.getElementById("save-status");
+  el.textContent = text;
+  el.className = "status" + (type ? " " + type : "");
+}
+
+// ── Init ──
+loadSettings();
+</script>
+</body>
+</html>

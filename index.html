@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mitya</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { pointer-events: none; background-color: #000; position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<script src="photo1_data.js"></script>
+<script src="pixi.min.js"></script>
+<script>
+/**
+ * Standalone adaptation of Cargo's pixelation/main module.
+ * Uses PIXI v4.8.9 (local). All rendering logic taken directly
+ * from the extracted pixelation.js source.
+ */
+(function(PIXI) {
+
+  // ── Default settings (used as fallback if settings.json fails to load) ──
+  var settings = {
+    hex: "#000000",
+    alpha: 0,
+    mouse_interaction: true,
+    mouse_sensitivity: 56,
+    image_url: "photo1.png",
+    rows: 64,
+    columns: 64,
+    zoom: -9,
+    horiz_stretch: 100,
+    vert_stretch: 97,
+    layout_mode: "grid_mode",
+    grid_size: 11,
+    stir_grid: true,
+    stir_freq: 59,
+    stir_strength: 92,
+    stir_disorder: 69,
+    elasticity: 85,
+    tolerance: 71,
+    mouse_zoom: -15,
+    flip_it: false,
+    size: "cover"
+  };
+
+  // ── Load settings from settings.json (desktop vs mobile) ──
+  var settingsLoaded = false;
+  function loadSettingsJSON(callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open("GET", "settings.json?t=" + Date.now(), true);
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          var json = JSON.parse(xhr.responseText);
+          var isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+                         || (window.innerWidth <= 768);
+          var profile = isMobile ? json.mobile : json.desktop;
+          if (profile) {
+            for (var key in profile) {
+              if (profile.hasOwnProperty(key)) settings[key] = profile[key];
+            }
+          }
+        } catch(e) {}
+      }
+      callback();
+    };
+    xhr.onerror = function() { callback(); };
+    xhr.send();
+  }
+
+  // ── State (mirrors this.data from Cargo's Backbone view) ──
+  var data = {
+    renderer: null,
+    stage: null,
+    texture: null,
+    composition: null,
+    sprites_num: 0,
+    mouse_in: false,
+    image_size: { width: 100, height: 100 },
+    row_num: 1,
+    col_num: 1,
+    mouse_vector: [{ x: 0, y: 0 }, { x: 0, y: 0 }],
+    texture_size: { width: 100, height: 100 },
+    is_mobile: false,
+    image_loaded: false,
+    model_speed: { x: 0, y: 0 },
+    lastClientPos: { x: 0, y: 0 },
+    skip_delta: false,
+    mouse_sensitivity: 0,
+    backdrop_size: { w: 800, h: 600, top: 0, left: 0, resolution: 1 },
+    movement_offset: { x: 0, y: 0 },
+    mouse_prev: { x: -1, y: -1 },
+    mouse_cur: { x: 0, y: 0 },
+    mouse_cache: { x: 0, y: 0 },
+    mouse_delta: { x: 0, y: 0, smooth_x: 0, smooth_y: 0, long_tail: 0 },
+    elasticity: settings.elasticity
+  };
+
+  var counter = 0;
+  var mouse_calced = false;
+  var drawFrameID = null;
+
+  // ── Init (mirrors Cargo's Init method) ──
+  function Init() {
+    // WebGL renderer. On https:// works directly with images.
+    // On file:// needs base64-embedded image (photo1_data.js) to avoid CORS taint.
+    data.renderer = PIXI.autoDetectRenderer(800, 600, {
+      transparent: true,
+      antialias: false,
+      resolution: 1
+    });
+    data.stage = new PIXI.Container;
+    data.composition = new PIXI.Container;
+    data.stage.addChild(data.composition);
+
+    document.body.appendChild(data.renderer.view);
+
+    // Background color
+    data.renderer.backgroundColor = parseInt(settings.hex.replace("#", "0x"));
+    data.stage.alpha = 1 - settings.alpha;
+
+    // Mouse sensitivity (exact Cargo formula)
+    data.mouse_sensitivity = 0.05 * Math.pow(0.01 * settings.mouse_sensitivity, 2);
+
+    // Events
+    var isMobile = 'ontouchstart' in window;
+    if (isMobile) {
+      data.is_mobile = true;
+      window.addEventListener("touchmove", updateMouseOffset, { passive: true });
+      data.mouse_in = false;
+      // ── Gyroscope support for mobile ──
+      initGyroscope();
+    } else {
+      window.addEventListener("mousemove", updateMouseOffset);
+      document.body.addEventListener("mouseenter", function() {
+        data.mouse_in = true;
+        data.backdrop_size.left = 0;
+      });
+      document.body.addEventListener("mouseleave", function() {
+        data.mouse_in = false;
+      });
+    }
+
+    window.addEventListener("resize", function() { updateWindow(false); });
+
+    updateWindow(true);
+    loadImage();
+  }
+
+  // ── loadImage ──
+  // Fixes for file:// protocol:
+  // 1. Load via <img> + draw to canvas (bypasses XHR/CORS)
+  // 2. Scale down to fit WebGL max texture size (photo is 2800x4200, limit often 4096)
+  function loadImage() {
+    console.log("[pixelation] loadImage start");
+    var img = new Image;
+    img.onload = function() {
+      console.log("[pixelation] image loaded:", img.naturalWidth, "x", img.naturalHeight);
+
+      data.image_size.width = img.naturalWidth;
+      data.image_size.height = img.naturalHeight;
+      data.texture_size = { width: img.naturalWidth, height: img.naturalHeight };
+
+      // Create texture directly from the Image element
+      var baseTexture = new PIXI.BaseTexture(img);
+      baseTexture.scaleMode = PIXI.SCALE_MODES.LINEAR;
+      data.texture = new PIXI.Texture(baseTexture);
+
+      data.image_loaded = true;
+      updateWindow(true);
+      makeSprites();
+      console.log("[pixelation] sprites created:", data.composition.children.length);
+      Resume();
+      console.log("[pixelation] animation started");
+    };
+    img.onerror = function() {
+      console.error("[pixelation] FAILED to load image: " + settings.image_url);
+    };
+    // Use embedded base64 data URL if available (for file:// protocol),
+    // otherwise fall back to file path (for http:// server)
+    img.src = window.PHOTO_DATA || settings.image_url;
+  }
+
+  // ── makeSprites (exact Cargo code) ──
+  function makeSprites() {
+    var e, i = data.row_num = settings.rows,
+        o = data.col_num = settings.columns,
+        s = settings.grid_size,
+        n = settings.layout_mode,
+        r = 0;
+
+    if ("grid_mode" == n) {
+      data.row_num = i = s;
+      data.col_num = o = s;
+    } else if ("row_mode" == n) {
+      data.col_num = o = 1;
+    } else if ("column_mode" == n) {
+      data.row_num = i = 1;
+    }
+
+    var d = i * o,
+        m = data.composition.children.length,
+        h = d - m;
+
+    if (h < 0) {
+      for (var l = m - 1; l > d - 1; l--) data.composition.removeChildAt(l);
+    } else if (h > 0) {
+      for (var l = m; l < d; l++) {
+        e = new PIXI.Sprite;
+        data.composition.addChild(e);
+      }
+    }
+
+    for (var l = 0; l < o; l++) {
+      for (var u = 0; u < i; u++) {
+        e = data.composition.children[r];
+        e.anchor = { x: 0.5, y: 0.5 };
+        e.coords = { x: l, y: u };
+        e.max_frame = { x: 0, y: 0, w: 1, h: 1 };
+        e.min_frame = { x: 0, y: 0, w: 1, h: 1 };
+        e.base_frame = { x: 0, y: 0, w: 1, h: 1 };
+        e.zoom_in_min_frame = { x: 0, y: 0, w: 1, h: 1 };
+        e.zoom_in_max_frame = { x: 0, y: 0, w: 1, h: 1 };
+        e.movement = { x: 0, y: 0 };
+        e.mouse_over = false;
+        e.mouse_zoom = 0;
+        e.animating = false;
+        e.speed = { x: 0, y: 0 };
+        e.interactive = true;
+        r++;
+      }
+    }
+
+    setSpritePosition();
+    resizeImage();
+  }
+
+  // ── setSpritePosition (exact Cargo code for grid_mode) ──
+  function setSpritePosition() {
+    if (!data.image_loaded || data.composition.children.length === 0) return;
+
+    var a, i, o, s, n, r, d, m, h, l, u, c, _, f, p, x, v, g, y, w,
+        b = data.texture_size.width,
+        z = data.texture_size.height,
+        M = settings.rows,
+        C = settings.columns,
+        k = settings.grid_size,
+        I = settings.layout_mode,
+        E = 0,
+        L = 0,
+        P = 0.01 * settings.zoom,
+        T = settings.flip_it,
+        S = [];
+
+    if (T) {
+      if ("grid_mode" == I) S = [[-1, 1], [-1, 1]];
+      else if ("row_mode" == I) S = [[1, 1], [-1, 1]];
+      else if ("column_mode" == I) S = [[-1, 1], [1, 1]];
+    } else {
+      S = [[1, 1], [1, 1]];
+    }
+
+    var h_zoom, v_zoom, tex_cell_w, tex_cell_h;
+
+    if ("grid_mode" == I) {
+      M = k; C = k;
+      E = Math.max(1 - (k - 3) / 29 * 2, 0);
+      L = 0.5 * (1 - (k - 3) / 29) + 0.5;
+      if (P < 0) P *= L;
+      h_zoom = P; v_zoom = P;
+      f = tex_cell_w = b / (C + 2);
+      p = tex_cell_h = z / (M + 2);
+    } else if ("row_mode" == I) {
+      C = 1;
+      E = Math.max(1 - (M - 3) / 59 * 2, 0);
+      L = 0.5 * (1 - (M - 3) / 59) + 0.5;
+      if (P < 0) P *= L;
+      h_zoom = 0; v_zoom = P;
+      tex_cell_w = b;
+      f = 0;
+      p = tex_cell_h = z / (M + 2);
+    } else if ("column_mode" == I) {
+      M = 1;
+      E = Math.max(1 - (C - 3) / 59 * 2, 0);
+      L = 0.5 * (1 - (C - 3) / 59) + 0.5;
+      if (P < 0) P *= L;
+      h_zoom = P; v_zoom = 0;
+      tex_cell_w = b / (C + 2);
+      f = tex_cell_w;
+      p = 0;
+      tex_cell_h = z;
+    }
+
+    s = 1 / b;
+    n = 1 / z;
+
+    for (var R = 0; R < M * C; R++) {
+      w = data.composition.children[R];
+      x = (1 == C) ? 0.5 : w.coords.x / (C - 1);
+      v = (1 == M) ? 0.5 : w.coords.y / (M - 1);
+      g = Math.sin(x * Math.PI);
+      y = Math.sin(v * Math.PI);
+      m = f + 1 / b;
+      h = p + 1 / z;
+      r = f + w.coords.x * tex_cell_w;
+      d = p + w.coords.y * tex_cell_h;
+      i = r + tex_cell_w / 2 + 0.5 * -s;
+      o = d + tex_cell_h / 2 + 0.5 * -n;
+
+      if (h_zoom > 0) {
+        l = h_zoom * i + (1 - h_zoom) * r;
+        c = h_zoom * s + (1 - h_zoom) * m;
+      } else {
+        l = -h_zoom * tex_cell_w + (1 + h_zoom) * r;
+        c = -h_zoom * (b - 2 * tex_cell_w) + (1 + h_zoom) * m;
+      }
+
+      if (v_zoom > 0) {
+        u = v_zoom * o + (1 - v_zoom) * d;
+        _ = v_zoom * n + (1 - v_zoom) * h;
+      } else {
+        u = -v_zoom * tex_cell_h + (1 + v_zoom) * d;
+        _ = -v_zoom * (z - 2 * tex_cell_h) + (1 + v_zoom) * h;
+      }
+
+      if ("grid_mode" == I) {
+        w.min_frame = {
+          x: Math.max(0, (l - 0.5 * b * g) * (1 - E) + (l - 0.5 * b) * E),
+          y: Math.max(0, (u - 0.5 * z * y) * (1 - E) + (u - 0.5 * z) * E),
+          w: c, h: _
+        };
+        w.max_frame = {
+          x: Math.min((l + 0.5 * b * g) * (1 - E) + (l + 0.5 * b) * E, b - c),
+          y: Math.min((u + 0.5 * z * y) * (1 - E) + (u + 0.5 * z) * E, z - _),
+          w: c, h: _
+        };
+        w.base_frame = { x: l, y: u, w: c, h: _ };
+        w.zoom_in_frame_base = { x: i, y: o, w: s, h: n };
+        w.zoom_in_min_frame = { x: 0, y: 0, w: s, h: n };
+        w.zoom_in_max_frame = { x: b - s, y: z - o, w: s, h: n };
+        w.zoom_out_frame = { x: 0, y: 0, w: b, h: z };
+      } else if ("row_mode" == I) {
+        w.min_frame = { x: 0, y: Math.max(0, (u - 0.5 * z * y) * (1 - E) + (u - 0.5 * z) * E), w: b, h: _ };
+        w.max_frame = { x: 0, y: Math.min((u + 0.5 * z * y) * (1 - E) + (u + 0.5 * z) * E, z - _), w: b, h: _ };
+        w.base_frame = { x: 0, y: u, w: b, h: _ };
+        w.zoom_in_frame_base = { x: 0, y: o, w: b, h: n };
+        w.zoom_in_min_frame = { x: 0, y: 0, w: b, h: n };
+        w.zoom_in_max_frame = { x: 0, y: z - o, w: b, h: n };
+        w.zoom_out_frame = { x: 0, y: 0, w: b, h: z };
+      } else if ("column_mode" == I) {
+        w.min_frame = { x: Math.max(0, (l - 0.5 * b * g) * (1 - E) + (l - 0.5 * b) * E), y: 0, w: c, h: z };
+        w.max_frame = { x: Math.min((l + 0.5 * b * g) * (1 - E) + (l + 0.5 * b) * E, b - c), y: 0, w: c, h: z };
+        w.base_frame = { x: l, y: 0, w: c, h: z };
+        w.zoom_in_frame_base = { x: i, y: 0, w: s, h: z };
+        w.zoom_in_min_frame = { x: 0, y: 0, w: s, h: z };
+        w.zoom_in_max_frame = { x: b - s, y: 0, w: s, h: z };
+        w.zoom_out_frame = { x: 0, y: 0, w: b, h: z };
+      }
+
+      a = new PIXI.Rectangle(w.base_frame.x, w.base_frame.y, w.base_frame.w, w.base_frame.h);
+      w.texture = new PIXI.Texture(data.texture.baseTexture, a);
+      w.width = data.backdrop_size.w / C * S[0][w.coords.x % 2];
+      w.height = data.backdrop_size.h / M * S[1][w.coords.y % 2];
+      w.position = {
+        x: Math.abs(w.width * w.coords.x) + 0.5 * Math.abs(w.width),
+        y: Math.abs(w.height * w.coords.y) + 0.5 * Math.abs(w.height)
+      };
+    }
+  }
+
+  // ── resizeImage (exact Cargo code) ──
+  function resizeImage() {
+    if (!data.image_loaded) return;
+
+    var e = 0, t = 0, a = 0, i = 0, o = null,
+        s = {
+          h: data.backdrop_size.h + 4,
+          w: data.backdrop_size.w + 4
+        },
+        n = {
+          y: data.image_size.width / data.image_size.height,
+          x: data.image_size.height / data.image_size.width
+        };
+
+    o = s.w / s.h < n.y;
+    if (o) {
+      e = Math.ceil(s.h);
+      t = Math.ceil(s.h * n.y);
+    } else {
+      e = Math.ceil(s.w * n.x);
+      t = Math.ceil(s.w);
+    }
+    a = Math.ceil((s.h - e) / 2 - 2);
+    i = Math.ceil((s.w - t) / 2 - 2);
+
+    data.composition.width = t;
+    data.composition.height = e;
+    data.composition.x = i;
+    data.composition.y = a;
+  }
+
+  // ── stirPixels (exact Cargo code) ──
+  function stirPixels() {
+    if (data.composition.children.length === 0 || !settings.stir_grid) return;
+
+    var t, a = data.composition.children.length,
+        i = 0.05 * settings.stir_freq,
+        o = 0.1 * settings.stir_disorder + 1,
+        s = 0.001 * settings.stir_strength * 0.25,
+        n = Math.sin(0.005 * i * counter),
+        r = Math.cos(0.005 * i * counter);
+
+    if ("grid_mode" == settings.layout_mode) {
+      for (var d = 0; d < a; d++) {
+        t = data.composition.children[d];
+        r = Math.sin(r + (o - 1) * d * 10);
+        t.speed.x += (Math.sin(0.003 * counter * i + 0.1 * (t.coords.x + r * t.coords.y * 0.5 * o)) * r + Math.cos(-0.0031 * counter * i + -0.1 * (t.coords.x - r * t.coords.y * 0.5 * o) + 0.7) * n) * s;
+        t.speed.y += (Math.sin(0.0031 * counter * i + 0.1 * (t.coords.y - r * t.coords.x * 0.5 * o)) * r + Math.cos(-0.003 * counter * i + -0.1 * (t.coords.y - r * t.coords.x * 0.5 * o) + 0.7) * n) * s;
+      }
+    } else {
+      for (var d = 0; d < a; d++) {
+        t = data.composition.children[d];
+        r = Math.sin(r + (o - 1) * d * 10);
+        t.speed.x += (Math.sin(0.009 * counter * i + 0.1 * (t.coords.x + r * t.coords.y * 0.5 * o * 40)) * r + Math.cos(-0.0091 * counter * i + -0.1 * (t.coords.x - r * t.coords.y * 0.5 * o * 40) + 0.7) * n) * s * 2;
+        t.speed.y += (Math.sin(0.0091 * counter * i + 0.1 * (t.coords.y - r * t.coords.x * 0.5 * o * 40)) * r + Math.cos(-0.009 * counter * i + -0.1 * (t.coords.y - r * t.coords.x * 0.5 * o * 40) + 0.7) * n) * s * 2;
+      }
+    }
+  }
+
+  // ── animateFrame (exact Cargo code) ──
+  function animateFrame() {
+    if (!data.image_loaded || data.composition.children.length === 0) return;
+
+    var e, a, i, o, s, n,
+        r = 0.01 * settings.mouse_zoom,
+        d = data.composition.children.length,
+        m = data.row_num,
+        h = 0,
+        l = { x: 0, y: 0 },
+        u = 0, c = 0,
+        _ = 1 - 0.15 * data.elasticity / 100,
+        f = 0.5 * (1 - data.elasticity / 100) + 0.49;
+
+    for (var p = 0; p < d; p++) {
+      e = data.composition.children[p];
+      e.speed.x = Math.min(1, Math.max(-1, e.speed.x * _));
+      e.speed.y = Math.min(1, Math.max(-1, e.speed.y * _));
+
+      var x = p + m, v = p - m, g = p + 1, y = p - 1;
+      h = 0;
+      l = { x: 0, y: 0 };
+
+      if (0 != Math.floor(g % m) && g < d) {
+        l.x += data.composition.children[g].movement.x;
+        l.y += data.composition.children[g].movement.y;
+        h++;
+      }
+      if (Math.floor(y % m) != m - 1 && Math.floor(y % m) > -1 && y >= 0) {
+        l.x += data.composition.children[y].movement.x;
+        l.y += data.composition.children[y].movement.y;
+        h++;
+      }
+      if (x < d) {
+        l.x += data.composition.children[x].movement.x;
+        l.y += data.composition.children[x].movement.y;
+        h++;
+      }
+      if (v >= 0) {
+        l.x += data.composition.children[v].movement.x;
+        l.y += data.composition.children[v].movement.y;
+        h++;
+      }
+
+      if (h > 0) {
+        e.movement.x = l.x / h * f + e.speed.x * (1 - f);
+        e.movement.y = l.y / h * f + e.speed.y * (1 - f);
+      }
+
+      u = Math.abs(e.movement.x);
+      c = Math.abs(e.movement.y);
+
+      var w, b,
+          z = 0.5 * e.movement.x + 0.5,
+          M = 0.5 * e.movement.y + 0.5;
+
+      if (e.movement.x > 0) {
+        i = e.min_frame.x * u + e.base_frame.x * (1 - u);
+        w = e.zoom_in_min_frame.x * u + e.zoom_in_frame_base.x * (1 - u);
+      } else {
+        i = e.max_frame.x * u + e.base_frame.x * (1 - u);
+        w = e.zoom_in_max_frame.x * u + e.zoom_in_frame_base.x * (1 - u);
+      }
+
+      if (e.movement.y > 0) {
+        o = e.min_frame.y * c + e.base_frame.y * (1 - c);
+        b = e.zoom_in_min_frame.y * c + e.zoom_in_frame_base.y * (1 - c);
+      } else {
+        o = e.max_frame.y * c + e.base_frame.y * (1 - c);
+        b = e.zoom_in_max_frame.y * c + e.zoom_in_frame_base.y * (1 - c);
+      }
+
+      s = e.base_frame.w;
+      n = e.base_frame.h;
+
+      var C = e.mouse_zoom * Math.abs(r),
+          k = 0.5 * r + 0.5;
+
+      i = (1 - C) * i + C * ((1 - k) * e.zoom_out_frame.x + k * w);
+      o = (1 - C) * o + C * ((1 - k) * e.zoom_out_frame.y + k * b);
+      s = (1 - C) * s + C * ((1 - k) * e.zoom_out_frame.w + k * e.zoom_in_frame_base.w);
+      n = (1 - C) * n + C * ((1 - k) * e.zoom_out_frame.h + k * e.zoom_in_frame_base.h);
+
+      e.mouse_zoom = Math.max(0.95 * e.mouse_zoom, 0);
+
+      if (u > 1e-5 || c > 1e-5 || C > 1e-4) {
+        a = new PIXI.Rectangle(i, o, s, n);
+        e.texture = new PIXI.Texture(data.texture.baseTexture, a);
+      }
+    }
+  }
+
+  // ── spriteMouseMove (exact Cargo code) ──
+  function spriteMouseMove() {
+    if (data.composition.children.length === 0 || !settings.mouse_interaction) return;
+
+    var t, a = data.row_num,
+        i = data.col_num,
+        o = data.backdrop_size.w,
+        s = data.backdrop_size.h,
+        n = data.composition.position.x,
+        r = data.composition.position.y,
+        d = data.mouse_sensitivity,
+        m = [],
+        h = 0.01 * settings.tolerance;
+
+    h = h * Math.max(a, i) * 2 + 1.5 * (1 - h);
+
+    t = (data.composition.width / data.composition.height > o / s) ? {
+      x: (data.mouse_cur.x - n) / data.composition.width * i,
+      y: (data.mouse_cur.y - r) / s * a
+    } : {
+      x: (data.mouse_cur.x - n) / o * i,
+      y: (data.mouse_cur.y - r) / data.composition.height * a
+    };
+
+    data.mouse_vector.unshift(t);
+    data.mouse_vector.pop();
+
+    var l = 0,
+        u = data.mouse_vector[0].x,
+        c = data.mouse_vector[1].x;
+    if (c < u) { l = u; u = c; c = l; }
+
+    var _ = data.mouse_vector[0].y,
+        f = data.mouse_vector[1].y;
+    if (f < _) { l = _; _ = f; f = l; }
+
+    var p, x, v, g,
+        y = Math.sqrt(h * h + h * h),
+        w = Math.abs(h / y),
+        b = data.mouse_in ? 1 : data.mouse_delta.long_tail;
+
+    for (var z = u + -0.01; z < c; z++) {
+      for (var M = _ + -0.01; M < f; M++) {
+        m = data.composition.children.filter(function(e) {
+          return Math.floor(z) <= e.coords.x + h && Math.floor(z) >= e.coords.x - h && Math.floor(M) <= e.coords.y + h && Math.floor(M) >= e.coords.y - h;
+        });
+        for (var C = 0; C < m.length; C++) {
+          p = z + -0.5 - m[C].coords.x;
+          x = M + -0.5 - m[C].coords.y;
+          v = Math.sqrt(p * p + x * x);
+          g = Math.max(h * w - v, 0) / (0.5 * y);
+          m[C].mouse_zoom = Math.min(Math.max(0, m[C].mouse_zoom * (1 - g) + (m[C].mouse_zoom + 0.1 * g) * g), 1) * b;
+          m[C].speed.x += Math.min(Math.max(-1, data.mouse_delta.smooth_x * g * d * 0.1), 1);
+          m[C].speed.y += Math.min(Math.max(-1, data.mouse_delta.smooth_y * g * d * 0.1), 1);
+        }
+      }
+    }
+  }
+
+  // ── updateMouseOffset (exact Cargo code) ──
+  function updateMouseOffset(e) {
+    if (mouse_calced || !settings.mouse_interaction) return;
+
+    data.mouse_prev = { x: data.mouse_cur.x, y: data.mouse_cur.y };
+
+    if (data.is_mobile && e) {
+      data.mouse_cur = {
+        x: (e.layerX || e.touches[0].clientX) - data.backdrop_size.left,
+        y: (e.layerY || e.touches[0].clientY) - data.backdrop_size.top
+      };
+    } else if (e) {
+      if (data.lastClientPos.x === e.clientX && data.lastClientPos.y === e.clientY) return;
+      data.lastClientPos.x = e.clientX;
+      data.lastClientPos.y = e.clientY;
+      data.mouse_in = true;
+      data.mouse_cur = {
+        x: e.clientX - data.backdrop_size.left,
+        y: e.clientY - data.backdrop_size.top
+      };
+    }
+
+    mouse_calced = true;
+  }
+
+  // ── setMouseDelta (exact Cargo code) ──
+  function setMouseDelta() {
+    var e = {
+      x: data.mouse_cur.x - data.mouse_prev.x,
+      y: data.mouse_cur.y - data.mouse_prev.y
+    };
+
+    if (Math.abs(e.x) > 0.9 * data.backdrop_size.w || Math.abs(e.y) > 0.9 * data.backdrop_size.h) return;
+
+    if (data.mouse_cache.x == data.mouse_cur.x) {
+      data.mouse_prev.x = data.mouse_cur.x;
+      e.x = 0;
+    }
+    if (data.mouse_cache.y == data.mouse_cur.y) {
+      data.mouse_prev.y = data.mouse_cur.y;
+      e.y = 0;
+    }
+    data.mouse_cache.x = data.mouse_cur.x;
+    data.mouse_cache.y = data.mouse_cur.y;
+
+    if (-1 == data.mouse_prev.x) {
+      data.mouse_delta = { x: 0, y: 0, smooth_x: 0, smooth_y: 0, long_tail: 0 };
+    } else {
+      var t = {
+        x: data.mouse_delta.smooth_x,
+        y: data.mouse_delta.smooth_y,
+        long_tail: data.mouse_delta.long_tail
+      };
+      data.mouse_delta = {
+        x: e.x,
+        y: e.y,
+        smooth_x: 0.1 * data.mouse_delta.x + 0.9 * t.x,
+        smooth_y: 0.1 * data.mouse_delta.y + 0.9 * t.y,
+        long_tail: 1
+      };
+      if (data.mouse_in) {
+        data.mouse_delta.long_tail = 1;
+      } else {
+        data.mouse_delta.long_tail = Math.min(0.008 * Math.max(Math.abs(data.mouse_delta.x), Math.abs(data.mouse_delta.y)) + 0.992 * t.long_tail, 1);
+      }
+    }
+  }
+
+  // ── updateWindow (exact Cargo logic — only calls resizeImage, NOT setSpritePosition) ──
+  function updateWindow(force) {
+    if (data.renderer === null) return;
+
+    var a = Math.max(window.innerWidth, 1),
+        i = Math.max(window.innerHeight, 1);
+
+    if (data.backdrop_size.w == a && data.backdrop_size.h == i && data.backdrop_size.resolution == 2 && !force) return;
+
+    data.backdrop_size.w = a;
+    data.backdrop_size.h = i;
+    data.backdrop_size.left = 0;
+    data.backdrop_size.top = 0;
+    data.backdrop_size.resolution = 2;
+    data.renderer.resize(a, i);
+    resizeImage();
+  }
+
+  // ── Resume / draw loop (exact Cargo code) ──
+  function Resume() {
+    window.cancelAnimationFrame(drawFrameID);
+    draw();
+  }
+
+  function draw() {
+    drawFrameID = window.requestAnimationFrame(draw);
+    updateWindow(false);
+    setMouseDelta();
+    stirPixels();
+    spriteMouseMove();
+    animateFrame();
+    counter++;
+    data.renderer.render(data.stage);
+    mouse_calced = false;
+  }
+
+  // ── Gyroscope → mouse position emulation ──
+  // Converts device tilt into virtual cursor position so the pixelation
+  // effect reacts to how the user holds their phone.
+  var gyro = { beta: 0, gamma: 0, enabled: false };
+
+  function initGyroscope() {
+    // iOS 13+ requires explicit permission request on user gesture
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      // Show a one-time "tap to enable" overlay
+      var btn = document.createElement('div');
+      btn.style.cssText = 'position:fixed;bottom:40px;left:50%;transform:translateX(-50%);' +
+        'padding:14px 28px;background:rgba(255,255,255,0.15);color:#fff;font-size:14px;' +
+        'border-radius:30px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);' +
+        'border:1px solid rgba(255,255,255,0.25);cursor:pointer;z-index:9999;' +
+        'font-family:-apple-system,sans-serif;';
+      btn.textContent = 'Tap to enable motion';
+      document.body.appendChild(btn);
+      btn.addEventListener('click', function() {
+        DeviceOrientationEvent.requestPermission().then(function(state) {
+          if (state === 'granted') {
+            startGyroListener();
+          }
+        });
+        btn.remove();
+      });
+    } else if ('DeviceOrientationEvent' in window) {
+      // Android — no permission needed
+      startGyroListener();
+    }
+  }
+
+  function startGyroListener() {
+    gyro.enabled = true;
+    data.mouse_in = true; // pretend mouse is always inside
+    window.addEventListener('deviceorientation', function(e) {
+      // beta = front-back tilt (-180..180), gamma = left-right tilt (-90..90)
+      if (e.beta === null || e.gamma === null) return;
+      gyro.beta = e.beta;
+      gyro.gamma = e.gamma;
+
+      // Map tilt to a virtual cursor position across the viewport
+      // Center position when phone is held at ~45° forward tilt
+      var normX = (gyro.gamma + 45) / 90;  // -45..+45 → 0..1
+      var normY = (gyro.beta - 30) / 60;   // 30..90 → 0..1
+      normX = Math.max(0, Math.min(1, normX));
+      normY = Math.max(0, Math.min(1, normY));
+
+      data.mouse_prev = { x: data.mouse_cur.x, y: data.mouse_cur.y };
+      data.mouse_cur = {
+        x: normX * data.backdrop_size.w,
+        y: normY * data.backdrop_size.h
+      };
+      mouse_calced = true;
+    }, true);
+  }
+
+  // ── Start: load settings.json first, then init ──
+  loadSettingsJSON(function() {
+    Init();
+  });
+
+})(PIXI);
+</script>
+</body>
+</html>

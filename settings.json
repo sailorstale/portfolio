@@ -1,0 +1,30 @@
+{
+  "desktop": {
+    "grid_size": 11,
+    "zoom": -9,
+    "flip_it": false,
+    "stir_grid": true,
+    "stir_freq": 59,
+    "stir_strength": 92,
+    "stir_disorder": 69,
+    "elasticity": 85,
+    "mouse_interaction": true,
+    "mouse_sensitivity": 56,
+    "tolerance": 71,
+    "mouse_zoom": -15
+  },
+  "mobile": {
+    "grid_size": 8,
+    "zoom": -5,
+    "flip_it": false,
+    "stir_grid": true,
+    "stir_freq": 59,
+    "stir_strength": 70,
+    "stir_disorder": 69,
+    "elasticity": 85,
+    "mouse_interaction": true,
+    "mouse_sensitivity": 56,
+    "tolerance": 71,
+    "mouse_zoom": -15
+  }
+}
