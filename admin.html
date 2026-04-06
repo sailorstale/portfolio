@@ -55,7 +55,7 @@
   }
 
   .preview-block { display: none; }
-  .preview-block.active { display: block; }
+  .preview-block.active { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 
   .preview-frame {
     border-radius: 8px; overflow: hidden;
@@ -66,8 +66,9 @@
     display: block; border: none; background: #000;
   }
 
-  /* Desktop preview — fill available space */
-  .preview-desktop .preview-frame { width: 100%; aspect-ratio: 16/10; max-height: calc(100vh - 160px); }
+  /* Desktop preview — fill the entire preview area */
+  .preview-desktop.active { padding: 0; }
+  .preview-desktop .preview-frame { width: 100%; height: 100%; border-radius: 0; border: none; }
   .preview-desktop iframe { width: 100%; height: 100%; }
 
   /* Mobile preview — 393x816 phone shape */
