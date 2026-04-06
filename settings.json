@@ -1,6 +1,6 @@
 {
   "desktop": {
-    "grid_size": 11,
+    "grid_size": 3,
     "zoom": -9,
     "flip_it": false,
     "stir_grid": true,
