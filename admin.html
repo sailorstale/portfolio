@@ -18,7 +18,7 @@
     background: rgba(18,18,18,0.95); position: sticky; top: 0; z-index: 10;
   }
   .header h1 { font-size: 16px; font-weight: 600; color: #fff; }
-  .header .actions { display: flex; gap: 10px; }
+  .header .actions { display: flex; gap: 10px; align-items: center; }
   .btn {
     padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer;
     font-size: 13px; font-weight: 500; transition: all 0.15s;
@@ -42,8 +42,51 @@
   .tab:hover { color: rgba(255,255,255,0.7); }
   .tab.active { color: #fff; border-bottom-color: #fff; }
 
+  /* Main layout */
+  .main {
+    display: flex; gap: 0;
+  }
+
+  /* Controls column */
+  .controls-col {
+    flex: 0 0 420px; min-width: 320px;
+    border-right: 1px solid rgba(255,255,255,0.08);
+    overflow-y: auto; max-height: calc(100vh - 100px);
+  }
+
+  /* Preview column */
+  .preview-col {
+    flex: 1; padding: 24px; overflow-y: auto; max-height: calc(100vh - 100px);
+    display: flex; flex-direction: column; gap: 24px; align-items: center;
+  }
+
+  .preview-block { width: 100%; }
+  .preview-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: rgba(255,255,255,0.3); margin-bottom: 10px; font-weight: 500;
+  }
+  .preview-frame {
+    border-radius: 8px; overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.1); background: #000;
+    position: relative;
+  }
+  .preview-frame iframe {
+    display: block; border: none; background: #000;
+  }
+
+  /* Desktop preview */
+  .preview-desktop .preview-frame { width: 100%; aspect-ratio: 16/10; }
+  .preview-desktop iframe { width: 100%; height: 100%; }
+
+  /* Mobile preview */
+  .preview-mobile .preview-frame {
+    width: 220px; aspect-ratio: 9/19.5; border-radius: 24px;
+    border: 3px solid rgba(255,255,255,0.15);
+  }
+  .preview-mobile iframe { width: 100%; height: 100%; }
+
   /* Panel content */
-  .panel { display: none; padding: 24px; max-width: 600px; }
+  .panel { display: none; padding: 24px; }
   .panel.active { display: block; }
 
   .section-title {
@@ -100,6 +143,14 @@
   .modal input[type="text"]:focus { border-color: rgba(255,255,255,0.4); }
   .modal .modal-actions { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; }
   .modal a { color: #7eb8ff; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .main { flex-direction: column; }
+    .controls-col { flex: none; width: 100%; max-height: none; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .preview-col { max-height: none; flex-direction: row; flex-wrap: wrap; justify-content: center; }
+    .preview-block { width: auto; }
+  }
 </style>
 </head>
 <body>
@@ -135,16 +186,37 @@
   <div class="tab" data-tab="mobile" onclick="switchTab('mobile')">Mobile</div>
 </div>
 
-<!-- Desktop Panel -->
-<div class="panel active" id="panel-desktop"></div>
+<!-- Main: Controls + Preview -->
+<div class="main">
+  <!-- Controls -->
+  <div class="controls-col">
+    <div class="panel active" id="panel-desktop"></div>
+    <div class="panel" id="panel-mobile"></div>
+  </div>
 
-<!-- Mobile Panel -->
-<div class="panel" id="panel-mobile"></div>
+  <!-- Preview -->
+  <div class="preview-col">
+    <div class="preview-block preview-desktop" id="preview-desktop-block">
+      <div class="preview-label">Desktop Preview</div>
+      <div class="preview-frame">
+        <iframe id="preview-desktop" src="index.html"></iframe>
+      </div>
+    </div>
+    <div class="preview-block preview-mobile" id="preview-mobile-block">
+      <div class="preview-label">Mobile Preview</div>
+      <div class="preview-frame">
+        <iframe id="preview-mobile" src="index.html"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
 var REPO = "sailorstale/portfolio";
 var FILE = "settings.json";
 var settings = { desktop: {}, mobile: {} };
+var activeTab = "desktop";
+var previewReady = { desktop: false, mobile: false };
 
 // ── Slider definitions ──
 var controls = [
@@ -166,6 +238,31 @@ var controls = [
   { key: "tolerance", label: "Mouse Radius", min: 0, max: 100, step: 1, unit: "%" },
   { key: "mouse_zoom", label: "Mouseover Zoom", min: -100, max: 100, step: 1, unit: "%" }
 ];
+
+// ── Send settings to preview iframe ──
+function sendToPreview(device) {
+  var iframe = document.getElementById("preview-" + device);
+  if (!iframe || !iframe.contentWindow || !previewReady[device]) return;
+  iframe.contentWindow.postMessage({
+    type: "update_settings",
+    settings: settings[device]
+  }, "*");
+}
+
+function sendToBothPreviews() {
+  sendToPreview("desktop");
+  sendToPreview("mobile");
+}
+
+// Mark preview ready when iframe loads
+document.getElementById("preview-desktop").addEventListener("load", function() {
+  previewReady.desktop = true;
+  sendToPreview("desktop");
+});
+document.getElementById("preview-mobile").addEventListener("load", function() {
+  previewReady.mobile = true;
+  sendToPreview("mobile");
+});
 
 // ── Build UI for a device tab ──
 function buildPanel(device) {
@@ -189,7 +286,10 @@ function buildPanel(device) {
       inp.checked = !!s[c.key];
       inp.dataset.key = c.key;
       inp.dataset.device = device;
-      inp.addEventListener("change", function() { s[this.dataset.key] = this.checked; });
+      inp.addEventListener("change", function() {
+        s[this.dataset.key] = this.checked;
+        sendToPreview(this.dataset.device);
+      });
       var box = document.createElement("span"); box.className = "box";
       var lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = c.label;
       wrap.appendChild(inp); wrap.appendChild(box); wrap.appendChild(lbl);
@@ -210,6 +310,7 @@ function buildPanel(device) {
         var v = parseFloat(this.value);
         settings[this.dataset.device][this.dataset.key] = v;
         document.getElementById("val-" + this.dataset.device + "-" + this.dataset.key).textContent = v + this.dataset.unit;
+        sendToPreview(this.dataset.device);
       });
       div.appendChild(hdr); div.appendChild(inp);
       panel.appendChild(div);
@@ -219,6 +320,7 @@ function buildPanel(device) {
 
 // ── Tabs ──
 function switchTab(tab) {
+  activeTab = tab;
   document.querySelectorAll(".tab").forEach(function(t) { t.classList.toggle("active", t.dataset.tab === tab); });
   document.querySelectorAll(".panel").forEach(function(p) { p.classList.toggle("active", p.id === "panel-" + tab); });
 }
@@ -242,6 +344,8 @@ function loadSettings() {
       buildPanel("desktop");
       buildPanel("mobile");
       setStatus("Settings loaded", "ok");
+      // Send to previews once loaded
+      sendToBothPreviews();
     })
     .catch(function() { setStatus("Failed to load settings", "err"); });
 }

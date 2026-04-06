@@ -742,6 +742,31 @@
     }, true);
   }
 
+  // ── PostMessage API for admin preview ──
+  // Allows admin.html to send settings updates via iframe postMessage.
+  window.addEventListener('message', function(e) {
+    if (!e.data || !e.data.type) return;
+
+    if (e.data.type === 'update_settings' && e.data.settings) {
+      var incoming = e.data.settings;
+      for (var key in incoming) {
+        if (incoming.hasOwnProperty(key)) settings[key] = incoming[key];
+      }
+      // Recalculate derived values
+      data.mouse_sensitivity = 0.05 * Math.pow(0.01 * settings.mouse_sensitivity, 2);
+      data.elasticity = settings.elasticity;
+      // Rebuild sprites with new grid/zoom/flip settings
+      if (data.image_loaded) {
+        makeSprites();
+      }
+    }
+
+    if (e.data.type === 'skip_settings_load') {
+      // Admin preview: skip loading settings.json, wait for postMessage instead
+      settingsLoaded = true;
+    }
+  });
+
   // ── Start: load settings.json first, then init ──
   loadSettingsJSON(function() {
     Init();
